@@ -14,6 +14,12 @@
 #define TINYOBJLOADER_IMPLEMENTATION
 #include <tiny_obj_loader.h>
 
+
+#include <assimp/Importer.hpp>
+#include <assimp/scene.h>
+#include <assimp/postprocess.h>
+
+
 #include <iostream>
 #include <fstream>
 #include <stdexcept>
@@ -28,6 +34,15 @@
 #include <optional>
 #include <set>
 #include <unordered_map>
+
+#include <boost/log/trivial.hpp>
+
+
+#define LOG_DEBUG(msg) BOOST_LOG_TRIVIAL(debug) << msg
+#define LOG_INFO(msg) BOOST_LOG_TRIVIAL(info) << msg
+#define LOG_ERROR(msg) BOOST_LOG_TRIVIAL(error) << msg
+#define LOG_FATAL(msg) BOOST_LOG_TRIVIAL(fatal) << msg
+
 
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
@@ -67,6 +82,8 @@ void DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT
         func(instance, debugMessenger, pAllocator);
     }
 }
+
+
 
 struct QueueFamilyIndices {
     std::optional<uint32_t> graphicsFamily;
@@ -1143,6 +1160,7 @@ private:
     }
 
     void loadModel() {
+
         tinyobj::attrib_t attrib;
         std::vector<tinyobj::shape_t> shapes;
         std::vector<tinyobj::material_t> materials;
@@ -1180,6 +1198,53 @@ private:
             }
         }
     }
+    void loadModel(std::string path)
+    {
+        // Create an instance of the Importer class
+        Assimp::Importer importer;
+
+        // And have it read the given file with some example postprocessing
+        // Usually - if speed is not the most important aspect for you - you'll
+        // probably to request more postprocessing than we do in this example.
+        const aiScene* scene = importer.ReadFile(path,
+            aiProcess_CalcTangentSpace |
+            aiProcess_Triangulate |
+            aiProcess_JoinIdenticalVertices |
+            aiProcess_SortByPType);
+
+        // If the import failed, report it
+        if (nullptr == scene) {
+            DoTheErrorLogging(importer.GetErrorString());
+            return false;
+        }
+
+        // Now we can access the file's contents.
+        DoTheSceneProcessing(scene);
+
+        // We're done. Everything will be cleaned up by the importer destructor
+        return true;
+    }
+
+    void processNode(aiNode* node, const aiScene* scene)
+    {
+        // process all the node's meshes (if any)
+        for (unsigned int i = 0; i < node->mNumMeshes; i++)
+        {
+            aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
+            meshes.push_back(processMesh(mesh, scene));
+        }
+        // then do the same for each of its children
+        for (unsigned int i = 0; i < node->mNumChildren; i++)
+        {
+            processNode(node->mChildren[i], scene);
+        }
+    }
+
+
+
+
+
+
 
     void createVertexBuffer() {
         VkDeviceSize bufferSize = sizeof(vertices[0]) * vertices.size();
