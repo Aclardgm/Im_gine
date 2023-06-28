@@ -85,6 +85,8 @@ void DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT
 
 
 
+
+
 struct QueueFamilyIndices {
     std::optional<uint32_t> graphicsFamily;
     std::optional<uint32_t> presentFamily;
@@ -102,6 +104,7 @@ struct SwapChainSupportDetails {
 
 struct Vertex {
     glm::vec3 pos;
+    glm::vec3 normal;
     glm::vec3 color;
     glm::vec2 texCoord;
 
@@ -140,6 +143,29 @@ struct Vertex {
     }
 };
 
+
+struct Mesh
+{
+public:
+    Mesh(std::vector<Vertex>&& vert, std::vector<uint32_t>&& ind) : vertices(std::move(vert)), indices(std::move(ind)) {}
+
+
+    std::vector<Vertex> vertices;
+    std::vector<uint32_t> indices;
+};
+
+struct Model
+{
+    std::vector<Mesh> meshes;
+};
+
+
+struct Scene
+{
+    std::vector<Model> models;
+};
+
+
 namespace std {
     template<> struct hash<Vertex> {
         size_t operator()(Vertex const& vertex) const {
@@ -154,7 +180,7 @@ struct UniformBufferObject {
     alignas(16) glm::mat4 proj;
 };
 
-class HelloTriangleApplication {
+class Application {
 public:
     void run() {
         initWindow();
@@ -226,6 +252,9 @@ private:
     std::vector<VkFence> inFlightFences;
     uint32_t currentFrame = 0;
 
+    Scene scene;
+
+
     bool framebufferResized = false;
 
     void initWindow() {
@@ -239,7 +268,7 @@ private:
     }
 
     static void framebufferResizeCallback(GLFWwindow* window, int width, int height) {
-        auto app = reinterpret_cast<HelloTriangleApplication*>(glfwGetWindowUserPointer(window));
+        auto app = reinterpret_cast<Application*>(glfwGetWindowUserPointer(window));
         app->framebufferResized = true;
     }
 
@@ -1159,6 +1188,16 @@ private:
         endSingleTimeCommands(commandBuffer);
     }
 
+
+    void loadAssets()
+    {
+        Model model;
+        loadAssetAssimp(MODEL_PATH, &model);
+
+        scene.models.push_back(std::move(model));
+
+    }
+
     void loadModel() {
 
         tinyobj::attrib_t attrib;
@@ -1198,7 +1237,7 @@ private:
             }
         }
     }
-    void loadModel(std::string path)
+    bool loadAssetAssimp(std::string path,Model* model)
     {
         // Create an instance of the Importer class
         Assimp::Importer importer;
@@ -1214,36 +1253,97 @@ private:
 
         // If the import failed, report it
         if (nullptr == scene) {
-            DoTheErrorLogging(importer.GetErrorString());
+            LOG_ERROR(importer.GetErrorString());
             return false;
         }
 
+
         // Now we can access the file's contents.
-        DoTheSceneProcessing(scene);
+        processScene(scene,model);
 
         // We're done. Everything will be cleaned up by the importer destructor
         return true;
     }
 
-    void processNode(aiNode* node, const aiScene* scene)
+
+    void processScene(const aiScene* scene,Model* model)
     {
-        // process all the node's meshes (if any)
-        for (unsigned int i = 0; i < node->mNumMeshes; i++)
+        if (scene->HasMeshes())
         {
-            aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
-            meshes.push_back(processMesh(mesh, scene));
-        }
-        // then do the same for each of its children
-        for (unsigned int i = 0; i < node->mNumChildren; i++)
-        {
-            processNode(node->mChildren[i], scene);
+            for (size_t i = 0; i < scene->mNumMeshes; i++)
+            {
+
+                aiMesh* mesh = scene->mMeshes[i];
+                model->meshes.push_back(std::move(processMesh(mesh)));
+
+            }
+
         }
     }
 
+    Mesh processMesh(aiMesh* mesh)
+    {
+        // data to fill
+        std::vector<Vertex> vertices;
+        std::vector<uint32_t> indices;
+
+        // walk through each of the mesh's vertices
+        for (unsigned int i = 0; i < mesh->mNumVertices; i++)
+        {
+            Vertex vertex;
+            glm::vec3 vector; // we declare a placeholder vector since assimp uses its own vector class that doesn't directly convert to glm's vec3 class so we transfer the data to this placeholder glm::vec3 first.
+            // positions
+            vector.x = mesh->mVertices[i].x;
+            vector.y = mesh->mVertices[i].y;
+            vector.z = mesh->mVertices[i].z;
+            vertex.pos = vector;
+            // normals
+            if (mesh->HasNormals())
+            {
+                vector.x = mesh->mNormals[i].x;
+                vector.y = mesh->mNormals[i].y;
+                vector.z = mesh->mNormals[i].z;
+                vertex.normal = vector;
+            }
+            // texture coordinates
+            if (mesh->mTextureCoords[0]) // does the mesh contain texture coordinates?
+            {
+                glm::vec2 vec;
+                // a vertex can contain up to 8 different texture coordinates. We thus make the assumption that we won't 
+                // use models where a vertex can have multiple texture coordinates so we always take the first set (0).
+                vec.x = mesh->mTextureCoords[0][i].x;
+                vec.y = mesh->mTextureCoords[0][i].y;
+                vertex.texCoord = vec;
+                //// tangent
+                //vector.x = mesh->mTangents[i].x;
+                //vector.y = mesh->mTangents[i].y;
+                //vector.z = mesh->mTangents[i].z;
+                //vertex.tangent = vector;
+                //// bitangent
+                //vector.x = mesh->mBitangents[i].x;
+                //vector.y = mesh->mBitangents[i].y;
+                //vector.z = mesh->mBitangents[i].z;
+                //vertex.bitangent = vector;
+            }
+            else
+                vertex.texCoord = glm::vec2(0.0f, 0.0f);
+
+            vertices.push_back(vertex);
+        }
+        // now wak through each of the mesh's faces (a face is a mesh its triangle) and retrieve the corresponding vertex indices.
+        for (unsigned int i = 0; i < mesh->mNumFaces; i++)
+        {
+            aiFace face = mesh->mFaces[i];
+            // retrieve all indices of the face and store them in the indices vector
+            for (unsigned int j = 0; j < face.mNumIndices; j++)
+                indices.push_back(face.mIndices[j]);
+        }
 
 
 
-
+        // return a mesh object created from the extracted mesh data
+        return Mesh(std::move(vertices), std::move(indices));
+    }
 
 
     void createVertexBuffer() {
@@ -1827,7 +1927,7 @@ private:
 };
 
 int main() {
-    HelloTriangleApplication app;
+    Application app;
 
     try {
         app.run();
