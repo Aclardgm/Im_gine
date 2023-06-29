@@ -11,10 +11,6 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
 
-#define TINYOBJLOADER_IMPLEMENTATION
-#include <tiny_obj_loader.h>
-
-
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
@@ -38,10 +34,10 @@
 #include <boost/log/trivial.hpp>
 
 
-#define LOG_DEBUG(msg) BOOST_LOG_TRIVIAL(debug) << msg
-#define LOG_INFO(msg) BOOST_LOG_TRIVIAL(info) << msg
-#define LOG_ERROR(msg) BOOST_LOG_TRIVIAL(error) << msg
-#define LOG_FATAL(msg) BOOST_LOG_TRIVIAL(fatal) << msg
+#define LOG_DEBUG(msg) BOOST_LOG_TRIVIAL(debug) << msg;
+#define LOG_INFO(msg) BOOST_LOG_TRIVIAL(info) << msg;
+#define LOG_ERROR(msg) BOOST_LOG_TRIVIAL(error) << msg;
+#define LOG_FATAL(msg) BOOST_LOG_TRIVIAL(fatal) << msg;
 
 
 const uint32_t WIDTH = 800;
@@ -267,6 +263,9 @@ private:
     bool framebufferResized = false;
 
     void initWindow() {
+
+        LOG_INFO("Started Init glfw Window")
+
         glfwInit();
 
         glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
@@ -282,6 +281,7 @@ private:
     }
 
     void initVulkan() {
+        LOG_INFO("Started Init Vulkan")
         createInstance();
         setupDebugMessenger();
         createSurface();
@@ -300,8 +300,6 @@ private:
         createTextureImageView();
         createTextureSampler();
         
-        //loadModel();
-
         loadAssets();
 
         createVertexBuffer();
@@ -412,6 +410,9 @@ private:
     }
 
     void createInstance() {
+
+        LOG_INFO("Started Creating Instance")
+
         if (enableValidationLayers && !checkValidationLayerSupport()) {
             throw std::runtime_error("validation layers requested, but not available!");
         }
@@ -1210,45 +1211,6 @@ private:
         scene.models.push_back(std::move(model));
     }
 
-    void loadModel() {
-
-        tinyobj::attrib_t attrib;
-        std::vector<tinyobj::shape_t> shapes;
-        std::vector<tinyobj::material_t> materials;
-        std::string warn, err;
-
-        if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, MODEL_PATH.c_str())) {
-            throw std::runtime_error(warn + err);
-        }
-
-        std::unordered_map<Vertex, uint32_t> uniqueVertices{};
-
-        for (const auto& shape : shapes) {
-            for (const auto& index : shape.mesh.indices) {
-                Vertex vertex{};
-
-                vertex.pos = {
-                    attrib.vertices[3 * index.vertex_index + 0],
-                    attrib.vertices[3 * index.vertex_index + 1],
-                    attrib.vertices[3 * index.vertex_index + 2]
-                };
-
-                vertex.texCoord = {
-                    attrib.texcoords[2 * index.texcoord_index + 0],
-                    1.0f - attrib.texcoords[2 * index.texcoord_index + 1]
-                };
-
-                vertex.color = { 1.0f, 1.0f, 1.0f };
-
-                if (uniqueVertices.count(vertex) == 0) {
-                    uniqueVertices[vertex] = static_cast<uint32_t>(vertices.size());
-                    vertices.push_back(vertex);
-                }
-
-                indices.push_back(uniqueVertices[vertex]);
-            }
-        }
-    }
     bool loadAssetAssimp(std::string path,Model* model)
     {
         // Create an instance of the Importer class
@@ -1265,7 +1227,7 @@ private:
 
         // If the import failed, report it
         if (nullptr == scene) {
-            LOG_ERROR(importer.GetErrorString());
+            LOG_ERROR(importer.GetErrorString())
             return false;
         }
 
