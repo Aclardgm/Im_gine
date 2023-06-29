@@ -157,6 +157,10 @@ public:
 struct Model
 {
     std::vector<Mesh> meshes;
+    std::vector<VkBuffer> vertexBuffer;
+    std::vector<VkDeviceMemory> vertexBufferMemory;
+    std::vector<VkBuffer> indexBuffer;
+    std::vector<VkDeviceMemory> indexBufferMemory;
 };
 
 
@@ -231,12 +235,17 @@ private:
     VkImageView textureImageView;
     VkSampler textureSampler;
 
+
+    //Object data
     std::vector<Vertex> vertices;
     std::vector<uint32_t> indices;
     VkBuffer vertexBuffer;
     VkDeviceMemory vertexBufferMemory;
     VkBuffer indexBuffer;
     VkDeviceMemory indexBufferMemory;
+
+
+
 
     std::vector<VkBuffer> uniformBuffers;
     std::vector<VkDeviceMemory> uniformBuffersMemory;
@@ -290,7 +299,11 @@ private:
         createTextureImage();
         createTextureImageView();
         createTextureSampler();
-        loadModel();
+        
+        //loadModel();
+
+        loadAssets();
+
         createVertexBuffer();
         createIndexBuffer();
         createUniformBuffers();
@@ -1195,7 +1208,6 @@ private:
         loadAssetAssimp(MODEL_PATH, &model);
 
         scene.models.push_back(std::move(model));
-
     }
 
     void loadModel() {
@@ -1275,7 +1287,6 @@ private:
 
                 aiMesh* mesh = scene->mMeshes[i];
                 model->meshes.push_back(std::move(processMesh(mesh)));
-
             }
 
         }
@@ -1311,8 +1322,14 @@ private:
                 glm::vec2 vec;
                 // a vertex can contain up to 8 different texture coordinates. We thus make the assumption that we won't 
                 // use models where a vertex can have multiple texture coordinates so we always take the first set (0).
+
+
                 vec.x = mesh->mTextureCoords[0][i].x;
-                vec.y = mesh->mTextureCoords[0][i].y;
+                //flipping uv for obj->vulkan texCoord representation
+                vec.y = 1.0f - mesh->mTextureCoords[0][i].y;
+
+
+
                 vertex.texCoord = vec;
                 //// tangent
                 //vector.x = mesh->mTangents[i].x;
@@ -1347,43 +1364,112 @@ private:
 
 
     void createVertexBuffer() {
-        VkDeviceSize bufferSize = sizeof(vertices[0]) * vertices.size();
 
-        VkBuffer stagingBuffer;
-        VkDeviceMemory stagingBufferMemory;
-        createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
+        for (size_t i = 0; i < scene.models.size(); i++)
+        {
+            for (size_t y = 0; y < scene.models[i].meshes.size(); y++)
+            {
 
-        void* data;
-        vkMapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
-        memcpy(data, vertices.data(), (size_t)bufferSize);
-        vkUnmapMemory(device, stagingBufferMemory);
+                VkDeviceSize bufferSize = sizeof(scene.models[i].meshes[y].vertices[0]) * scene.models[i].meshes[y].vertices.size();
 
-        createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, vertexBuffer, vertexBufferMemory);
+                VkBuffer stagingBuffer;
+                VkDeviceMemory stagingBufferMemory;
+                createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
 
-        copyBuffer(stagingBuffer, vertexBuffer, bufferSize);
+                void* data;
+                vkMapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
+                memcpy(data, scene.models[i].meshes[y].vertices.data(), (size_t)bufferSize);
+                vkUnmapMemory(device, stagingBufferMemory);
 
-        vkDestroyBuffer(device, stagingBuffer, nullptr);
-        vkFreeMemory(device, stagingBufferMemory, nullptr);
+
+
+                //Not sexy for now
+                scene.models[i].vertexBuffer.push_back(std::move(VkBuffer()));
+                scene.models[i].vertexBufferMemory.push_back(std::move(VkDeviceMemory()));
+
+                createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, scene.models[i].vertexBuffer[i], scene.models[i].vertexBufferMemory[i]);
+
+
+                copyBuffer(stagingBuffer, scene.models[i].vertexBuffer[i], bufferSize);
+
+                vkDestroyBuffer(device, stagingBuffer, nullptr);
+                vkFreeMemory(device, stagingBufferMemory, nullptr);
+
+            }
+        }
+
+
+
+        //VkDeviceSize bufferSize = sizeof(vertices[0]) * vertices.size();
+
+        //VkBuffer stagingBuffer;
+        //VkDeviceMemory stagingBufferMemory;
+        //createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
+
+        //void* data;
+        //vkMapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
+        //memcpy(data, vertices.data(), (size_t)bufferSize);
+        //vkUnmapMemory(device, stagingBufferMemory);
+
+        //createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, vertexBuffer, vertexBufferMemory);
+
+        //copyBuffer(stagingBuffer, vertexBuffer, bufferSize);
+
+        //vkDestroyBuffer(device, stagingBuffer, nullptr);
+        //vkFreeMemory(device, stagingBufferMemory, nullptr);
     }
 
     void createIndexBuffer() {
-        VkDeviceSize bufferSize = sizeof(indices[0]) * indices.size();
 
-        VkBuffer stagingBuffer;
-        VkDeviceMemory stagingBufferMemory;
-        createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
+        for (size_t i = 0; i < scene.models.size(); i++)
+        {
+            for (size_t y = 0; y < scene.models[i].meshes.size(); y++)
+            {
 
-        void* data;
-        vkMapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
-        memcpy(data, indices.data(), (size_t)bufferSize);
-        vkUnmapMemory(device, stagingBufferMemory);
+                VkDeviceSize bufferSize = sizeof(scene.models[i].meshes[y].indices[0]) * scene.models[i].meshes[y].indices.size();
 
-        createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, indexBuffer, indexBufferMemory);
+                VkBuffer stagingBuffer;
+                VkDeviceMemory stagingBufferMemory;
+                createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
 
-        copyBuffer(stagingBuffer, indexBuffer, bufferSize);
+                void* data;
+                vkMapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
+                memcpy(data, scene.models[i].meshes[y].indices.data(), (size_t)bufferSize);
+                vkUnmapMemory(device, stagingBufferMemory);
 
-        vkDestroyBuffer(device, stagingBuffer, nullptr);
-        vkFreeMemory(device, stagingBufferMemory, nullptr);
+
+                //Not sexy for now
+                scene.models[i].indexBuffer.push_back(std::move(VkBuffer()));
+                scene.models[i].indexBufferMemory.push_back(std::move(VkDeviceMemory()));
+
+                createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, scene.models[i].indexBuffer[i], scene.models[i].indexBufferMemory[i]);
+
+                copyBuffer(stagingBuffer, scene.models[i].indexBuffer[i], bufferSize);
+
+                vkDestroyBuffer(device, stagingBuffer, nullptr);
+                vkFreeMemory(device, stagingBufferMemory, nullptr);
+
+            }
+        }
+
+
+        //VkDeviceSize bufferSize = sizeof(indices[0]) * indices.size();
+
+        //VkBuffer stagingBuffer;
+        //VkDeviceMemory stagingBufferMemory;
+        //createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
+
+        //void* data;
+        //vkMapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
+        //memcpy(data, indices.data(), (size_t)bufferSize);
+        //vkUnmapMemory(device, stagingBufferMemory);
+
+        //createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, indexBuffer, indexBufferMemory);
+
+        //copyBuffer(stagingBuffer, indexBuffer, bufferSize);
+
+        //vkDestroyBuffer(device, stagingBuffer, nullptr);
+        //vkFreeMemory(device, stagingBufferMemory, nullptr);
     }
 
     void createUniformBuffers() {
@@ -1470,6 +1556,7 @@ private:
         bufferInfo.size = size;
         bufferInfo.usage = usage;
         bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        
 
         if (vkCreateBuffer(device, &bufferInfo, nullptr, &buffer) != VK_SUCCESS) {
             throw std::runtime_error("failed to create buffer!");
@@ -1600,7 +1687,27 @@ private:
         scissor.extent = swapChainExtent;
         vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
-        VkBuffer vertexBuffers[] = { vertexBuffer };
+
+        for (size_t i = 0; i < scene.models.size(); i++)
+        {
+            for (size_t y = 0; y < scene.models[i].meshes.size(); y++)
+            {
+
+                VkBuffer vertexBuffers[] = { scene.models[i].vertexBuffer[y] };
+                VkDeviceSize offsets[] = { 0 };
+                vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
+
+                vkCmdBindIndexBuffer(commandBuffer, scene.models[i].indexBuffer[y], 0, VK_INDEX_TYPE_UINT32);
+
+                vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSets[currentFrame], 0, nullptr);
+
+                vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(scene.models[i].meshes[y].indices.size()), 1, 0, 0, 0);
+
+
+            }
+        }
+
+        /*VkBuffer vertexBuffers[] = { vertexBuffer };
         VkDeviceSize offsets[] = { 0 };
         vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
 
@@ -1608,7 +1715,7 @@ private:
 
         vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSets[currentFrame], 0, nullptr);
 
-        vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
+        vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);*/
 
         vkCmdEndRenderPass(commandBuffer);
 
