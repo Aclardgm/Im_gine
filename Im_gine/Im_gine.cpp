@@ -1,12 +1,6 @@
-#define GLFW_INCLUDE_VULKAN
-#include <GLFW/glfw3.h>
 
-#define GLM_FORCE_RADIANS
-#define GLM_FORCE_DEPTH_ZERO_TO_ONE
-#define GLM_ENABLE_EXPERIMENTAL
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtx/hash.hpp>
+
+#include "glminclude.h"
 
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
@@ -14,6 +8,7 @@
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
+
 
 
 #include <iostream>
@@ -30,8 +25,26 @@
 #include <optional>
 #include <set>
 #include <unordered_map>
+#include <memory>
 
 #include <boost/log/trivial.hpp>
+
+#include "IdManager.h"
+#include "MeshRenderer.h"
+
+
+
+#include "Vertex.h"
+#include "Texture.h"
+#include "Mesh.h"
+#include "Model.h"
+#include "Scene.h"
+#include "World.h"
+
+#include "DataStorage.h"
+
+
+
 
 
 #define LOG_DEBUG(msg) BOOST_LOG_TRIVIAL(debug) << msg;
@@ -98,81 +111,11 @@ struct SwapChainSupportDetails {
     std::vector<VkPresentModeKHR> presentModes;
 };
 
-struct Vertex {
-    glm::vec3 pos;
-    glm::vec3 normal;
-    glm::vec3 color;
-    glm::vec2 texCoord;
-
-    static VkVertexInputBindingDescription getBindingDescription() {
-        VkVertexInputBindingDescription bindingDescription{};
-        bindingDescription.binding = 0;
-        bindingDescription.stride = sizeof(Vertex);
-        bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-
-        return bindingDescription;
-    }
-
-    static std::array<VkVertexInputAttributeDescription, 3> getAttributeDescriptions() {
-        std::array<VkVertexInputAttributeDescription, 3> attributeDescriptions{};
-
-        attributeDescriptions[0].binding = 0;
-        attributeDescriptions[0].location = 0;
-        attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
-        attributeDescriptions[0].offset = offsetof(Vertex, pos);
-
-        attributeDescriptions[1].binding = 0;
-        attributeDescriptions[1].location = 1;
-        attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
-        attributeDescriptions[1].offset = offsetof(Vertex, color);
-
-        attributeDescriptions[2].binding = 0;
-        attributeDescriptions[2].location = 2;
-        attributeDescriptions[2].format = VK_FORMAT_R32G32_SFLOAT;
-        attributeDescriptions[2].offset = offsetof(Vertex, texCoord);
-
-        return attributeDescriptions;
-    }
-
-    bool operator==(const Vertex& other) const {
-        return pos == other.pos && color == other.color && texCoord == other.texCoord;
-    }
-};
 
 
-struct Mesh
-{
-public:
-    Mesh(std::vector<Vertex>&& vert, std::vector<uint32_t>&& ind) : vertices(std::move(vert)), indices(std::move(ind)) {}
 
 
-    std::vector<Vertex> vertices;
-    std::vector<uint32_t> indices;
-};
 
-struct Model
-{
-    std::vector<Mesh> meshes;
-    std::vector<VkBuffer> vertexBuffer;
-    std::vector<VkDeviceMemory> vertexBufferMemory;
-    std::vector<VkBuffer> indexBuffer;
-    std::vector<VkDeviceMemory> indexBufferMemory;
-};
-
-
-struct Scene
-{
-    std::vector<Model> models;
-};
-
-
-namespace std {
-    template<> struct hash<Vertex> {
-        size_t operator()(Vertex const& vertex) const {
-            return ((hash<glm::vec3>()(vertex.pos) ^ (hash<glm::vec3>()(vertex.color) << 1)) >> 1) ^ (hash<glm::vec2>()(vertex.texCoord) << 1);
-        }
-    };
-}
 
 struct UniformBufferObject {
     alignas(16) glm::mat4 model;
@@ -226,22 +169,7 @@ private:
     VkImageView depthImageView;
 
     uint32_t mipLevels;
-    VkImage textureImage;
-    VkDeviceMemory textureImageMemory;
-    VkImageView textureImageView;
-    VkSampler textureSampler;
-
-
-    //Object data
-    std::vector<Vertex> vertices;
-    std::vector<uint32_t> indices;
-    VkBuffer vertexBuffer;
-    VkDeviceMemory vertexBufferMemory;
-    VkBuffer indexBuffer;
-    VkDeviceMemory indexBufferMemory;
-
-
-
+    
 
     std::vector<VkBuffer> uniformBuffers;
     std::vector<VkDeviceMemory> uniformBuffersMemory;
@@ -257,10 +185,27 @@ private:
     std::vector<VkFence> inFlightFences;
     uint32_t currentFrame = 0;
 
-    Scene scene;
 
+
+    std::unique_ptr<World> world;
+
+    Scene* mainScene;
+    
 
     bool framebufferResized = false;
+
+
+
+    void initWorld()
+    {
+        world = std::make_unique<World>();
+
+        mainScene = world.get()->createScene();
+
+
+
+
+    }
 
     void initWindow() {
 
@@ -296,10 +241,8 @@ private:
         createColorResources();
         createDepthResources();
         createFramebuffers();
-        createTextureImage();
-        createTextureImageView();
-        createTextureSampler();
-        
+
+        initWorld();
         loadAssets();
 
         createVertexBuffer();
@@ -353,20 +296,12 @@ private:
         }
 
         vkDestroyDescriptorPool(device, descriptorPool, nullptr);
-
-        vkDestroySampler(device, textureSampler, nullptr);
-        vkDestroyImageView(device, textureImageView, nullptr);
-
-        vkDestroyImage(device, textureImage, nullptr);
-        vkFreeMemory(device, textureImageMemory, nullptr);
-
+        
+        
+        AssetStorageManager::Instance().cleanup(device);
+        
         vkDestroyDescriptorSetLayout(device, descriptorSetLayout, nullptr);
 
-        vkDestroyBuffer(device, indexBuffer, nullptr);
-        vkFreeMemory(device, indexBufferMemory, nullptr);
-
-        vkDestroyBuffer(device, vertexBuffer, nullptr);
-        vkFreeMemory(device, vertexBufferMemory, nullptr);
 
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
             vkDestroySemaphore(device, renderFinishedSemaphores[i], nullptr);
@@ -909,9 +844,10 @@ private:
         return format == VK_FORMAT_D32_SFLOAT_S8_UINT || format == VK_FORMAT_D24_UNORM_S8_UINT;
     }
 
-    void createTextureImage() {
+    Texture createTextureImage(std::string& path) {
         int texWidth, texHeight, texChannels;
-        stbi_uc* pixels = stbi_load(TEXTURE_PATH.c_str(), &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+        Texture tex;
+        stbi_uc* pixels = stbi_load(path.c_str(), &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
         VkDeviceSize imageSize = texWidth * texHeight * 4;
         mipLevels = static_cast<uint32_t>(std::floor(std::log2(std::max(texWidth, texHeight)))) + 1;
 
@@ -930,16 +866,18 @@ private:
 
         stbi_image_free(pixels);
 
-        createImage(texWidth, texHeight, mipLevels, VK_SAMPLE_COUNT_1_BIT, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, textureImage, textureImageMemory);
+        createImage(texWidth, texHeight, mipLevels, VK_SAMPLE_COUNT_1_BIT, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, tex.textureImage, tex.textureImageMemory);
 
-        transitionImageLayout(textureImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, mipLevels);
-        copyBufferToImage(stagingBuffer, textureImage, static_cast<uint32_t>(texWidth), static_cast<uint32_t>(texHeight));
+        transitionImageLayout(tex.textureImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, mipLevels);
+        copyBufferToImage(stagingBuffer, tex.textureImage, static_cast<uint32_t>(texWidth), static_cast<uint32_t>(texHeight));
         //transitioned to VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL while generating mipmaps
 
         vkDestroyBuffer(device, stagingBuffer, nullptr);
         vkFreeMemory(device, stagingBufferMemory, nullptr);
 
-        generateMipmaps(textureImage, VK_FORMAT_R8G8B8A8_SRGB, texWidth, texHeight, mipLevels);
+        generateMipmaps(tex.textureImage, VK_FORMAT_R8G8B8A8_SRGB, texWidth, texHeight, mipLevels);
+
+        return tex;
     }
 
 
@@ -1048,11 +986,11 @@ private:
         return VK_SAMPLE_COUNT_1_BIT;
     }
 
-    void createTextureImageView() {
-        textureImageView = createImageView(textureImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_ASPECT_COLOR_BIT, mipLevels);
+    void createTextureImageView(Texture& tex) {
+        tex.textureImageView = createImageView(tex.textureImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_ASPECT_COLOR_BIT, mipLevels);
     }
 
-    void createTextureSampler() {
+    void createTextureSampler(Texture& tex) {
         VkPhysicalDeviceProperties properties{};
         vkGetPhysicalDeviceProperties(physicalDevice, &properties);
 
@@ -1074,7 +1012,7 @@ private:
         samplerInfo.maxLod = static_cast<float>(mipLevels);
         samplerInfo.mipLodBias = 0.0f;
 
-        if (vkCreateSampler(device, &samplerInfo, nullptr, &textureSampler) != VK_SUCCESS) {
+        if (vkCreateSampler(device, &samplerInfo, nullptr, &tex.textureSampler) != VK_SUCCESS) {
             throw std::runtime_error("failed to create texture sampler!");
         }
     }
@@ -1219,61 +1157,19 @@ private:
         };
 
 
+        AssetStorageManager& am = AssetStorageManager::Instance();
+
         for (size_t i = 0; i < modelPaths.size(); i++)
         {
             Model model;
             loadAssetAssimp(modelPaths[i], &model);
-            scene.models.push_back(std::move(model));
+
+            Texture tex = createTextureImage(texturePaths[i]);
+            createTextureImageView(tex);
+            createTextureSampler(tex);
+
+            mainScene->buildEntity().set<MeshRenderer>({ am.AddModel(std::move(model)),am.AddTexture(std::move(tex))});
         }
-
-
-        //for (size_t i = 0; i < modelPaths.size(); i++)
-        //{
-        //    Model model;
-        //    loadTexture(modelPaths[i], &model);
-        //    scene.models.push_back(std::move(model));
-        //}
-
-
-        /*Model model;
-        loadAssetAssimp(MODEL_PATH, &model);
-        scene.models.push_back(std::move(model));*/
-    }
-
-
-
-    void loadTexture(const std::string& path)
-    {
-        int texWidth, texHeight, texChannels;
-        stbi_uc* pixels = stbi_load(path.c_str(), &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
-        VkDeviceSize imageSize = texWidth * texHeight * 4;
-        mipLevels = static_cast<uint32_t>(std::floor(std::log2(std::max(texWidth, texHeight)))) + 1;
-
-        if (!pixels) {
-            throw std::runtime_error("failed to load texture image!");
-        }
-
-        VkBuffer stagingBuffer;
-        VkDeviceMemory stagingBufferMemory;
-        createBuffer(imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
-
-        void* data;
-        vkMapMemory(device, stagingBufferMemory, 0, imageSize, 0, &data);
-        memcpy(data, pixels, static_cast<size_t>(imageSize));
-        vkUnmapMemory(device, stagingBufferMemory);
-
-        stbi_image_free(pixels);
-
-        createImage(texWidth, texHeight, mipLevels, VK_SAMPLE_COUNT_1_BIT, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, textureImage, textureImageMemory);
-
-        transitionImageLayout(textureImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, mipLevels);
-        copyBufferToImage(stagingBuffer, textureImage, static_cast<uint32_t>(texWidth), static_cast<uint32_t>(texHeight));
-        //transitioned to VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL while generating mipmaps
-
-        vkDestroyBuffer(device, stagingBuffer, nullptr);
-        vkFreeMemory(device, stagingBufferMemory, nullptr);
-
-        generateMipmaps(textureImage, VK_FORMAT_R8G8B8A8_SRGB, texWidth, texHeight, mipLevels);
     }
 
 
@@ -1309,15 +1205,16 @@ private:
 
     void processScene(const aiScene* scene,Model* model)
     {
-        if (scene->HasMeshes())
+
+        AssetStorageManager& am = AssetStorageManager::Instance();
+
+
+        for (size_t i = 0; i < scene->mNumMeshes; i++)
         {
-            for (size_t i = 0; i < scene->mNumMeshes; i++)
-            {
 
-                aiMesh* mesh = scene->mMeshes[i];
-                model->meshes.push_back(std::move(processMesh(mesh)));
-            }
-
+            aiMesh* mesh = scene->mMeshes[i];
+            ID id = am.AddMesh(std::move(processMesh(mesh)));
+            model->meshesID.push_back(id);
         }
     }
 
@@ -1394,12 +1291,28 @@ private:
 
     void createVertexBuffer() {
 
-        for (size_t i = 0; i < scene.models.size(); i++)
-        {
-            for (size_t y = 0; y < scene.models[i].meshes.size(); y++)
-            {
+        Scene* currentScene = world.get()->getCurrentScene();
 
-                VkDeviceSize bufferSize = sizeof(scene.models[i].meshes[y].vertices[0]) * scene.models[i].meshes[y].vertices.size();
+
+        AssetStorageManager& am = AssetStorageManager::Instance();
+        
+        flecs::query<MeshRenderer> q = currentScene->world.query<MeshRenderer>();
+
+        
+
+        q.each([this](flecs::entity e, MeshRenderer& rend) {
+
+            AssetStorageManager& am = AssetStorageManager::Instance();
+            Model& model = am.getModels().at(rend.modelID);
+
+
+            int vertexBufferID = 0;
+
+            for (auto ite = model.meshesID.begin(); ite != model.meshesID.end(); ite++)
+            {
+                Mesh& mesh = am.getMeshes().at(*ite);
+
+                VkDeviceSize bufferSize = sizeof(mesh.vertices[0]) * mesh.vertices.size();
 
                 VkBuffer stagingBuffer;
                 VkDeviceMemory stagingBufferMemory;
@@ -1407,55 +1320,52 @@ private:
 
                 void* data;
                 vkMapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
-                memcpy(data, scene.models[i].meshes[y].vertices.data(), (size_t)bufferSize);
+                memcpy(data, mesh.vertices.data(), (size_t)bufferSize);
                 vkUnmapMemory(device, stagingBufferMemory);
 
 
+                model.vertexBuffer.push_back(VkBuffer());
+                model.vertexBufferMemory.push_back(VkDeviceMemory());
 
-                //Not sexy for now
-                scene.models[i].vertexBuffer.push_back(std::move(VkBuffer()));
-                scene.models[i].vertexBufferMemory.push_back(std::move(VkDeviceMemory()));
-
-                createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, scene.models[i].vertexBuffer[i], scene.models[i].vertexBufferMemory[i]);
+                createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, model.vertexBuffer[vertexBufferID], model.vertexBufferMemory[vertexBufferID]);
 
 
-                copyBuffer(stagingBuffer, scene.models[i].vertexBuffer[i], bufferSize);
+                copyBuffer(stagingBuffer, model.vertexBuffer[vertexBufferID], bufferSize);
 
                 vkDestroyBuffer(device, stagingBuffer, nullptr);
                 vkFreeMemory(device, stagingBufferMemory, nullptr);
 
+
+                vertexBufferID++;
             }
-        }
 
 
 
-        //VkDeviceSize bufferSize = sizeof(vertices[0]) * vertices.size();
-
-        //VkBuffer stagingBuffer;
-        //VkDeviceMemory stagingBufferMemory;
-        //createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
-
-        //void* data;
-        //vkMapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
-        //memcpy(data, vertices.data(), (size_t)bufferSize);
-        //vkUnmapMemory(device, stagingBufferMemory);
-
-        //createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, vertexBuffer, vertexBufferMemory);
-
-        //copyBuffer(stagingBuffer, vertexBuffer, bufferSize);
-
-        //vkDestroyBuffer(device, stagingBuffer, nullptr);
-        //vkFreeMemory(device, stagingBufferMemory, nullptr);
+        });
     }
 
     void createIndexBuffer() {
+        Scene* currentScene = world.get()->getCurrentScene();
 
-        for (size_t i = 0; i < scene.models.size(); i++)
-        {
-            for (size_t y = 0; y < scene.models[i].meshes.size(); y++)
+
+        AssetStorageManager& am = AssetStorageManager::Instance();
+        
+
+        flecs::query<MeshRenderer> q = currentScene->world.query<MeshRenderer>();
+        q.each([this](flecs::entity e, MeshRenderer& rend) {
+
+            AssetStorageManager& am = AssetStorageManager::Instance();
+            Model& model = am.getModels().at(rend.modelID);
+
+
+            int indexBufferID = 0;
+
+            for (auto ite = model.meshesID.begin(); ite != model.meshesID.end(); ite++)
             {
 
-                VkDeviceSize bufferSize = sizeof(scene.models[i].meshes[y].indices[0]) * scene.models[i].meshes[y].indices.size();
+                Mesh& mesh = am.getMeshes().at(*ite);
+
+                VkDeviceSize bufferSize = sizeof(mesh.indices[0]) * mesh.indices.size();
 
                 VkBuffer stagingBuffer;
                 VkDeviceMemory stagingBufferMemory;
@@ -1463,42 +1373,25 @@ private:
 
                 void* data;
                 vkMapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
-                memcpy(data, scene.models[i].meshes[y].indices.data(), (size_t)bufferSize);
+                memcpy(data, mesh.indices.data(), (size_t)bufferSize);
                 vkUnmapMemory(device, stagingBufferMemory);
 
 
-                //Not sexy for now
-                scene.models[i].indexBuffer.push_back(std::move(VkBuffer()));
-                scene.models[i].indexBufferMemory.push_back(std::move(VkDeviceMemory()));
+                model.indexBuffer.push_back(VkBuffer());
+                model.indexBufferMemory.push_back(VkDeviceMemory());
 
-                createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, scene.models[i].indexBuffer[i], scene.models[i].indexBufferMemory[i]);
+                createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, model.indexBuffer[indexBufferID], model.indexBufferMemory[indexBufferID]);
 
-                copyBuffer(stagingBuffer, scene.models[i].indexBuffer[i], bufferSize);
+                copyBuffer(stagingBuffer, model.indexBuffer[indexBufferID], bufferSize);
 
                 vkDestroyBuffer(device, stagingBuffer, nullptr);
                 vkFreeMemory(device, stagingBufferMemory, nullptr);
 
+                indexBufferID++;
             }
-        }
 
+        });
 
-        //VkDeviceSize bufferSize = sizeof(indices[0]) * indices.size();
-
-        //VkBuffer stagingBuffer;
-        //VkDeviceMemory stagingBufferMemory;
-        //createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
-
-        //void* data;
-        //vkMapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
-        //memcpy(data, indices.data(), (size_t)bufferSize);
-        //vkUnmapMemory(device, stagingBufferMemory);
-
-        //createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, indexBuffer, indexBufferMemory);
-
-        //copyBuffer(stagingBuffer, indexBuffer, bufferSize);
-
-        //vkDestroyBuffer(device, stagingBuffer, nullptr);
-        //vkFreeMemory(device, stagingBufferMemory, nullptr);
     }
 
     void createUniformBuffers() {
@@ -1546,16 +1439,23 @@ private:
             throw std::runtime_error("failed to allocate descriptor sets!");
         }
 
+
+        AssetStorageManager& am = AssetStorageManager::Instance();
+
+
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
             VkDescriptorBufferInfo bufferInfo{};
             bufferInfo.buffer = uniformBuffers[i];
             bufferInfo.offset = 0;
             bufferInfo.range = sizeof(UniformBufferObject);
 
+
+
+
             VkDescriptorImageInfo imageInfo{};
             imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            imageInfo.imageView = textureImageView;
-            imageInfo.sampler = textureSampler;
+            imageInfo.imageView = am.getTextures().begin().operator*().second.textureImageView;
+            imageInfo.sampler = am.getTextures().begin().operator*().second.textureSampler;
 
             std::array<VkWriteDescriptorSet, 2> descriptorWrites{};
 
@@ -1717,34 +1617,42 @@ private:
         vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
 
-        for (size_t i = 0; i < scene.models.size(); i++)
-        {
-            for (size_t y = 0; y < scene.models[i].meshes.size(); y++)
+
+        Scene* currentScene = world.get()->getCurrentScene();
+
+
+        AssetStorageManager& am = AssetStorageManager::Instance();
+
+
+        flecs::query<MeshRenderer> q = currentScene->world.query<MeshRenderer>();
+        q.each([this, commandBuffer](flecs::entity e, MeshRenderer& rend) {
+
+            AssetStorageManager& am = AssetStorageManager::Instance();
+            Model& model = am.getModels().at(rend.modelID);
+
+
+            int indexBuffer = 0;
+
+            for (auto ite = model.meshesID.begin(); ite != model.meshesID.end(); ite++)
             {
 
-                VkBuffer vertexBuffers[] = { scene.models[i].vertexBuffer[y] };
+                Mesh& mesh = am.getMeshes().at(*ite);
+
+                VkBuffer vertexBuffers[] = { model.vertexBuffer[indexBuffer] };
                 VkDeviceSize offsets[] = { 0 };
                 vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
 
-                vkCmdBindIndexBuffer(commandBuffer, scene.models[i].indexBuffer[y], 0, VK_INDEX_TYPE_UINT32);
+                vkCmdBindIndexBuffer(commandBuffer, model.indexBuffer[indexBuffer], 0, VK_INDEX_TYPE_UINT32);
 
                 vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSets[currentFrame], 0, nullptr);
 
-                vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(scene.models[i].meshes[y].indices.size()), 1, 0, 0, 0);
+                vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(mesh.indices.size()), 1, 0, 0, 0);
 
-
+                indexBuffer++;
             }
-        }
 
-        /*VkBuffer vertexBuffers[] = { vertexBuffer };
-        VkDeviceSize offsets[] = { 0 };
-        vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
+        });
 
-        vkCmdBindIndexBuffer(commandBuffer, indexBuffer, 0, VK_INDEX_TYPE_UINT32);
-
-        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSets[currentFrame], 0, nullptr);
-
-        vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);*/
 
         vkCmdEndRenderPass(commandBuffer);
 
