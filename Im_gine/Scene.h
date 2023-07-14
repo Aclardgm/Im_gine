@@ -4,10 +4,6 @@
 #include "flecs.h"
 
 
-//using Entity = ecs_entity_t;
-
-
-
 
 struct Scene
 {

@@ -10,7 +10,6 @@
 #include <boost/array.hpp>
 #include <boost/tuple/tuple.hpp>
 #include <list>
-#define CHUNK_SIZE (16 * 1024)
 
 
 
