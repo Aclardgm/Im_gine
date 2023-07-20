@@ -5,8 +5,6 @@
 #include "glminclude.h"
 
 
-#define DATASIZE_VERTEX (12 * 3 + 8 * 1)
-
 struct Vertex {
 
 
