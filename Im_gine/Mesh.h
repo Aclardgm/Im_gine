@@ -1,7 +1,7 @@
 #pragma once
 
 #include <vector> 
-
+#include "Vertex.h"
 #define DATASIZE_MESH (4 * DATASIZE_ID)
 
 struct Mesh

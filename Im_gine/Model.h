@@ -2,7 +2,7 @@
 
 #include <vector> 
 
-
+#include "IdManager.h"
 
 struct Model
 {
@@ -11,11 +11,6 @@ struct Model
     std::vector<VkDeviceMemory> vertexBufferMemory;
     std::vector<VkBuffer> indexBuffer;
     std::vector<VkDeviceMemory> indexBufferMemory;
-
-    VkBuffer getVertexBuffer()
-    {
-        
-    }
-
-
 };
+
+

@@ -12,13 +12,17 @@
 #include <list>
 
 
+#include "Texture.h"
+#include "Mesh.h"
+#include "Model.h"
 
+#include "IdManager.h"
 
+#define ASSETSTORAGE AssetStorageManager& am = AssetStorageManager::Instance()
 
 class AssetStorageManager
 {
 private:
-	//TODO : Turn these in Unique PTR
 	std::map<ID, Mesh> meshes;
 	std::map<ID, Model> models;
 	std::map<ID, Texture> textures;
@@ -27,6 +31,15 @@ private:
 	std::map<ID, VkDescriptorPool> descriptorPool;
 	std::map<ID, VkPipeline> pipelines;
 	std::map<ID, VkPipelineLayout> pipelineLayouts;
+
+
+	std::map<ID, std::vector<VkBuffer>> uniformBuffers;
+	std::map<ID, std::vector<VkDeviceMemory>> uniformBuffersMemory;
+	std::map<ID, std::vector<void*>> uniformBuffersMapped;
+	std::map<ID, std::vector<VkCommandBuffer>> commandBuffers;
+	std::map<ID, std::vector<VkSemaphore>> imageAvailableSemaphores;
+	std::map<ID, std::vector<VkSemaphore>> renderFinishedSemaphores;
+	std::map<ID, std::vector<VkFence>> inFlightFences;
 
 
 	AssetStorageManager() {}
@@ -89,6 +102,56 @@ public:
 		pipelineLayouts[id] = pipelineLayout;
 		return id;
 	}
+	//Add VkBuffer to Data and return ID
+	ID AddUniformBuffer(VkBuffer&& buffer)
+	{
+		ID id = getUID();
+		uniformBuffers[id].push_back(buffer);
+		return id;
+	}
+	//Add VkDeviceMemory to Data and return ID
+	ID AddUniformBufferDeviceMemory(VkDeviceMemory&& deviceMem)
+	{
+		ID id = getUID();
+		uniformBuffersMemory[id].push_back(deviceMem);
+		return id;
+	}
+	//Add void* to Data and return ID
+	ID AddUniformBufferMapped(void*&& bufferMapped)
+	{
+		ID id = getUID();
+		uniformBuffersMapped[id].push_back(bufferMapped);
+		return id;
+	}
+	//Add VkCommandBuffer to Data and return ID
+	ID AddCommandBuffer(VkCommandBuffer&& commandBuffer)
+	{
+		ID id = getUID();
+		commandBuffers[id].push_back(commandBuffer);
+		return id;
+	}
+	//Add VkSemaphore to Data and return ID
+	ID AddAvailableSemaphore(VkSemaphore&& availableSemaphore)
+	{
+		ID id = getUID();
+		imageAvailableSemaphores[id].push_back(availableSemaphore);
+		return id;
+	}
+	//Add VkSemaphore to Data and return ID
+	ID AddFinishedSemaphore(VkSemaphore&& finishedSemaphore)
+	{
+		ID id = getUID();
+		renderFinishedSemaphores[id].push_back(finishedSemaphore);
+		return id;
+	}
+	//Add VkFence to Data and return ID
+	ID AddFence(VkFence&& fence)
+	{
+		ID id = getUID();
+		inFlightFences[id].push_back(fence);
+		return id;
+	}
+
 
 
 	//Create and Add Mesh to Data and return pair<ID,Mesh>
@@ -112,7 +175,7 @@ public:
 		textures[id] = Texture();
 		return std::pair<ID, Texture&>(id, textures[id]);
 	}
-	//Create and Add VkDescriptorSet to Data and return pair<ID,VkDescriptorSet>
+	//Create and Add VkDescriptorSet to Data and return pair<ID, std::vector<VkDescriptorSet>&>
 	std::pair<ID, std::vector<VkDescriptorSet>&> getDescriptorSet()
 	{
 		ID id = getUID();
@@ -147,6 +210,56 @@ public:
 		pipelineLayouts[id] = VkPipelineLayout();
 		return std::pair<ID, VkPipelineLayout*>(id, &pipelineLayouts[id]);
 	}
+	//Create and Add VkBuffer to Data and return pair<ID, std::vector<VkBuffer>&>
+	std::pair<ID, std::vector<VkBuffer>&> getUniformBuffer()
+	{
+		ID id = getUID();
+		uniformBuffers[id] = std::vector<VkBuffer>();
+		return std::pair<ID, std::vector<VkBuffer>&>(id, uniformBuffers[id]);
+	}
+	//Create and Add VkDeviceMemory to Data and return pair<ID, std::vector<VkDeviceMemory>&>
+	std::pair<ID, std::vector<VkDeviceMemory>&> getUniformBufferMemory()
+	{
+		ID id = getUID();
+		uniformBuffersMemory[id] = std::vector<VkDeviceMemory>();
+		return std::pair<ID, std::vector<VkDeviceMemory>&>(id, uniformBuffersMemory[id]);
+	}
+	//Create and Add void* to Data and return pair<ID, std::vector<void*>&>
+	std::pair<ID, std::vector<void*>&> getUniformBufferMapped()
+	{
+		ID id = getUID();
+		uniformBuffersMapped[id] = std::vector<void*>();
+		return std::pair<ID, std::vector<void*>&>(id, uniformBuffersMapped[id]);
+	}
+	//Create and Add VkCommandBuffer to Data and return pair<ID, std::vector<VkCommandBuffer>&>
+	std::pair<ID, std::vector<VkCommandBuffer>&> getCommandBuffer()
+	{
+		ID id = getUID();
+		commandBuffers[id] = std::vector<VkCommandBuffer>();
+		return std::pair<ID, std::vector<VkCommandBuffer>&>(id, commandBuffers[id]);
+	}
+	//Create and Add VkSemaphore to Data and return pair<ID, std::vector<VkSemaphore>&>
+	std::pair<ID, std::vector<VkSemaphore>&> getAvailableSemaphore()
+	{
+		ID id = getUID();
+		imageAvailableSemaphores[id] = std::vector<VkSemaphore>();
+		return std::pair<ID, std::vector<VkSemaphore>&>(id, imageAvailableSemaphores[id]);
+	}
+	//Create and Add VkSemaphore to Data and return pair<ID, std::vector<VkSemaphore>&>
+	std::pair<ID, std::vector<VkSemaphore>&> getFinishedSemaphore()
+	{
+		ID id = getUID();
+		renderFinishedSemaphores[id] = std::vector<VkSemaphore>();
+		return std::pair<ID, std::vector<VkSemaphore>&>(id, renderFinishedSemaphores[id]);
+	}
+	//Create and Add VkFence to Data and return pair<ID, std::vector<VkFence>&>
+	std::pair<ID, std::vector<VkFence>&> getInFlightFence()
+	{
+		ID id = getUID();
+		inFlightFences[id] = std::vector<VkFence>();
+		return std::pair<ID, std::vector<VkFence>&>(id, inFlightFences[id]);
+	}
+
 
 
 
@@ -190,6 +303,43 @@ public:
 	{
 		return &pipelineLayouts[id];
 	}
+	//Return VkBuffer by ID (throw on OOB) 
+	std::vector<VkBuffer>& getUniformBuffer(ID id)
+	{
+		return uniformBuffers.at(id);
+	}
+	//Return VkDeviceMemory by ID (throw on OOB) 
+	std::vector<VkDeviceMemory>& getUniformBufferMemroy(ID id)
+	{
+		return uniformBuffersMemory.at(id);
+	}
+	//Return void* by ID (throw on OOB) 
+	std::vector<void*>& getUniformBufferMapped(ID id)
+	{
+		return uniformBuffersMapped.at(id);
+	}
+	//Return VkCommandBuffer by ID (throw on OOB) 
+	std::vector<VkCommandBuffer>& getCommandBuffer(ID id)
+	{
+		return commandBuffers.at(id);
+	}
+	//Return VkSemaphore by ID (throw on OOB) 
+	std::vector<VkSemaphore>& getAvailableSemaphore(ID id)
+	{
+		return imageAvailableSemaphores.at(id);
+	}
+	//Return VkSemaphore by ID (throw on OOB) 
+	std::vector<VkSemaphore>& getFinishedSemaphore(ID id)
+	{
+		return renderFinishedSemaphores.at(id);
+	}
+	//Return VkFence by ID (throw on OOB) 
+	std::vector<VkFence>& getInFlightFence(ID id)
+	{
+		return inFlightFences.at(id);
+	}
+
+
 
 
 	//Return const& of map <ID,Mesh>
@@ -288,6 +438,48 @@ public:
 	std::map<ID, VkPipelineLayout>& getPipelineLayouts()
 	{
 		auto& ref = pipelineLayouts;
+		return ref;
+	}
+	//Return & of map <ID,VkDescriptorSet>
+	std::map<ID, std::vector<VkBuffer>>& getUniformBuffers()
+	{
+		auto& ref = uniformBuffers;
+		return ref;
+	}
+	//Return & of map <ID,VkDescriptorSet>
+	std::map<ID, std::vector<VkDeviceMemory>>& getUniformBufferMemorys()
+	{
+		auto& ref = uniformBuffersMemory;
+		return ref;
+	}
+	//Return & of map <ID,VkDescriptorSet>
+	std::map<ID, std::vector<void*>>& getUniformBufferMappeds()
+	{
+		auto& ref = uniformBuffersMapped;
+		return ref;
+	}
+	//Return & of map <ID,VkDescriptorSet>
+	std::map<ID, std::vector<VkCommandBuffer>>& getCommandBuffers()
+	{
+		auto& ref = commandBuffers;
+		return ref;
+	}
+	//Return & of map <ID,VkDescriptorSet>
+	std::map<ID, std::vector<VkSemaphore>>& getAvailableSemaphores()
+	{
+		auto& ref = imageAvailableSemaphores;
+		return ref;
+	}
+	//Return & of map <ID,VkDescriptorSet>
+	std::map<ID, std::vector<VkSemaphore>>& getFinishedSemaphores()
+	{
+		auto& ref = renderFinishedSemaphores;
+		return ref;
+	}
+	//Return & of map <ID,VkDescriptorSet>
+	std::map<ID, std::vector<VkFence>>& getInFlightFences()
+	{
+		auto& ref = inFlightFences;
 		return ref;
 	}
 
